@@ -68,3 +68,30 @@ SQLAlchemy
 SQLite3
 
 Streamlit
+
+Cara Menjalankan Project:
+
+Install semua library yang dibutuhkan
+pip install pandas openpyxl sqlalchemy streamlit
+
+Jalankan proses ekstraksi data:
+
+python npp_test.py
+python trx_test.py
+python ticket_size.py
+
+Jalankan dashboard visualisasi:
+
+streamlit run chart_visualisasi.py
+
+✨ Fitur Tambahan
+
+Validasi data otomatis (cek jika ada penurunan NPP/TRX antar bulan).
+
+Dashboard mendukung Dark Mode toggle.
+
+Filter rentang bulan dinamis di sidebar Streamlit.
+
+📩 Contact
+
+Jika ada pertanyaan terkait project ini, silakan hubungi:Eriks Stanford | GitHub: eriks4g414
