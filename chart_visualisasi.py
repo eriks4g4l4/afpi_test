@@ -23,7 +23,7 @@ df_trx["Bulan"] = pd.to_datetime(df_trx["Bulan"])
 df_npp["Bulan"] = pd.to_datetime(df_npp["Bulan"])
 
 # === HITUNG TICKET SIZE ===
-df_merge = pd.merge(df_npp, df_trx, on="Bulan", how="inner")
+df_merge = pd.merge(df_npp, df_trx, on=["Bulan", "Provinsi"], how="inner")
 df_merge["ticket_size"] = df_merge["NPP"] / df_merge["Trx"]
 
 # === STREAMLIT CONFIG ===
@@ -53,8 +53,10 @@ if dark_mode:
 st.title("📊 Dashboard Ticket Size LPBBTI")
 st.markdown("---")
 
-# === FILTER BULAN ===
-st.sidebar.header("Filter Bulan")
+# === FILTERS ===
+st.sidebar.header("Filter Data")
+
+# Filter Bulan
 bulan_min = df_merge["Bulan"].min().to_pydatetime()
 bulan_max = df_merge["Bulan"].max().to_pydatetime()
 
@@ -66,88 +68,106 @@ selected_range = st.sidebar.slider(
     format="YYYY-MM"
 )
 
+# Filter Provinsi
+provinsi_options = ["Semua"] + sorted(df_merge["Provinsi"].unique().tolist())
+selected_provinsi = st.sidebar.selectbox("Pilih Provinsi:", provinsi_options)
+
 # === FILTER DATA ===
-mask = (df_merge["Bulan"] >= selected_range[0]) & (df_merge["Bulan"] <= selected_range[1])
-filtered_data = df_merge.loc[mask]
+mask_bulan = (df_merge["Bulan"] >= selected_range[0]) & (df_merge["Bulan"] <= selected_range[1])
 
-# Pisahkan untuk masing-masing
-filtered_ticket = filtered_data[["Bulan", "ticket_size"]]
-filtered_trx = filtered_data[["Bulan", "Trx"]]
-filtered_npp = filtered_data[["Bulan", "NPP"]]
+if selected_provinsi != "Semua":
+    mask_provinsi = df_merge["Provinsi"] == selected_provinsi
+else:
+    mask_provinsi = pd.Series([True] * len(df_merge))
 
-# === VISUALISASI TABS ===
+filtered_data = df_merge[mask_bulan & mask_provinsi]
+
+# === TABS ===
 tab1, tab2, tab3 = st.tabs(["📈 Ticket Size", "💵 TRX", "💰 NPP"])
 
 # === TAB 1: Ticket Size ===
 with tab1:
     st.subheader("📈 Visualisasi Ticket Size")
 
-    # --- Tampilkan Chart ---
-    st.line_chart(
-        filtered_ticket.set_index(filtered_ticket["Bulan"].dt.strftime('%Y-%m'))["ticket_size"]
-    )
+    # Pastikan kolom Bulan dalam datetime format
+    filtered_data["Bulan"] = pd.to_datetime(filtered_data["Bulan"], errors="coerce")
 
-    # --- Tabel Ringkasan per Bulan ---
-    st.markdown("### 📄 Tabel Data Ticket Size per Bulan")
-
-    summary_ticket = (
-        filtered_ticket
-        .groupby(filtered_ticket["Bulan"].dt.strftime('%Y-%m'))
-        .agg({"ticket_size": "mean"})  # Pakai mean kalau misal ada double data
+    # Sum semua NPP dan TRX per bulan
+    ticket_summary = (
+        filtered_data
+        .groupby(filtered_data["Bulan"].dt.to_period('M'))
+        .agg({"NPP": "sum", "Trx": "sum"})
         .reset_index()
     )
 
-    summary_ticket = summary_ticket.rename(columns={"Bulan": "Bulan", "ticket_size": "Ticket Size"})
-    summary_ticket["Ticket Size"] = summary_ticket["Ticket Size"].round(6)
+    # Kembalikan kolom Bulan jadi format string YYYY-MM
+    ticket_summary["Bulan"] = ticket_summary["Bulan"].dt.strftime('%Y-%m')
 
-    st.dataframe(summary_ticket, use_container_width=True)
+    # Hitung Ticket Size
+    ticket_summary["Ticket_Size"] = (ticket_summary["NPP"] / ticket_summary["Trx"]).round(6)
 
+    # === Visualisasi Line Chart ===
+    if not ticket_summary.empty:
+        st.line_chart(
+            ticket_summary.set_index("Bulan")["Ticket_Size"]
+        )
+    else:
+        st.warning("Data tidak tersedia untuk filter yang dipilih.")
+
+# Tampilkan Tabel Summary dengan 6 angka decimal
+st.markdown("### 📄 Tabel Data Ticket Size per Bulan")
+st.dataframe(
+    ticket_summary[["Bulan", "Ticket_Size"]],
+    use_container_width=True,
+    column_config={
+        "Ticket_Size": st.column_config.NumberColumn(format="%.6f")
+    }
+)
 
 # === TAB 2: TRX ===
 with tab2:
     st.subheader("📈 Visualisasi Jumlah TRX")
 
-    # Ambil data TRX detail
-    display_trx = filtered_trx.copy()
+    display_trx = filtered_data[["Bulan", "Provinsi", "Trx"]].copy()
     display_trx["Bulan"] = display_trx["Bulan"].dt.strftime('%Y-%m')
 
-    # Chart Summary (total per bulan saja)
-    trx_summary = (
+    summary_trx = (
         display_trx
-        .groupby("Bulan")["Trx"]
+        .groupby(["Bulan", "Provinsi"])["Trx"]
         .sum()
         .reset_index()
     )
 
-    st.line_chart(
-        trx_summary.set_index("Bulan")["Trx"]
-    )
+    if not summary_trx.empty:
+        st.line_chart(
+            summary_trx.pivot(index="Bulan", columns="Provinsi", values="Trx")
+        )
+    else:
+        st.warning("Data tidak tersedia untuk filter yang dipilih.")
 
-    # Tabel TRX lengkap (Bulan + Provinsi + Trx)
-    st.markdown("### 📄 Tabel Data TRX (Detail Provinsi)")
+    st.markdown("### 📄 Tabel Data TRX per Bulan dan Provinsi")
     st.dataframe(display_trx, use_container_width=True)
 
 # === TAB 3: NPP ===
 with tab3:
     st.subheader("📈 Visualisasi Jumlah NPP")
 
-    # Ambil data NPP detail
-    display_npp = filtered_npp.copy()
+    display_npp = filtered_data[["Bulan", "Provinsi", "NPP"]].copy()
     display_npp["Bulan"] = display_npp["Bulan"].dt.strftime('%Y-%m')
 
-    # Chart Summary (total per bulan saja)
-    npp_summary = (
+    summary_npp = (
         display_npp
-        .groupby("Bulan")["NPP"]
+        .groupby(["Bulan", "Provinsi"])["NPP"]
         .sum()
         .reset_index()
     )
 
-    st.line_chart(
-        npp_summary.set_index("Bulan")["NPP"]
-    )
+    if not summary_npp.empty:
+        st.line_chart(
+            summary_npp.pivot(index="Bulan", columns="Provinsi", values="NPP")
+        )
+    else:
+        st.warning("Data tidak tersedia untuk filter yang dipilih.")
 
-    # Tabel NPP lengkap (Bulan + Provinsi + NPP)
-    st.markdown("### 📄 Tabel Data NPP (Detail Provinsi)")
+    st.markdown("### 📄 Tabel Data NPP per Bulan dan Provinsi")
     st.dataframe(display_npp, use_container_width=True)
-
